@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: argo
+  labels:
+    name: argo-service
+    app: harmony-stack
+spec:
+  ports:
+    - port: 2746
+      targetPort: 2746
+  selector:
+    name: harmony-app-pod
+    app: harmony-stack

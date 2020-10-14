@@ -1,0 +1,89 @@
+#!/bin/bash
+
+SELF=$(basename $0)
+
+function usage
+{
+  echo "Usage: $SELF [-d|--driver <driver>] [port]"
+
+  echo "port must be a number"
+}
+
+CREATE=false
+
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+  -d|--driver)
+  DRIVER=$2
+  shift
+  shift
+  ;;
+  *)
+  PPORT="$1"
+  shift
+  ;;
+esac
+done
+
+
+# use docker driver as the default
+DRIVER_DEFAULT=docker
+
+DRIVER=${DRIVER:-$DRIVER_DEFAULT}
+
+source ".env"
+
+PORT=${PPORT:-2746}
+
+[[ $PORT =~ ^[0-9]+$ ]] || (usage && exit 1)
+
+echo "$DRIVER"
+
+minikube start --driver="$DRIVER"
+
+sleep 5
+
+# make sure we are talking to minikube and not some other environment
+kubectl config use-context minikube
+
+argo_namespace=$(kubectl get namespace | grep argo | cut -d ' ' -f1)
+
+if [ -z "$argo_namespace" ]; then
+  kubectl create namespace argo
+fi
+
+cat <<EOF | kubectl -n argo apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argo-edl-credentials
+type: Opaque
+data:
+  username: $(echo -n "${EDL_USERNAME}" | base64)
+  password: $(echo -n "${EDL_PASSWORD}" | base64)
+EOF
+
+# kubectl apply -n argo -f ./config/local-argo-deployment.yml
+for f in \
+    postgres-pod postgres-service localstack-pod localstack-service harmony-app-pod harmony-app-service harmony-backend-service argo argo-service argo-x-service
+do
+    kubectl -n argo apply -f ./x/${f}.yaml
+done
+
+# wait for argo to start up
+while [[ $(kubectl -n argo get pods -l app=argo-server -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do echo "waiting for argo" && sleep 5; done
+
+for f in ./config/workflow-templates/*; do
+  workflow=$(basename $f .yaml)
+  existing_workflow=$(argo -n argo template get $workflow | grep $workflow | cut -d ' ' -f1)
+  if [ -n "$existing_workflow" ]; then
+    argo -n argo template delete $workflow
+  fi
+  argo -n argo template create $f
+done
+
+#kubectl -n argo port-forward deployment/argo-server "$PORT:2746"
+kubectl -n argo port-forward service/harmony-app "3000:3000"

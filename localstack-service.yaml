@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+  labels:
+    name: localstack-service
+    app: harmony-stack
+spec:
+  ports:
+    - name: "edge"
+      port: 4566
+      targetPort: 4566
+    - name: "s3"
+      port: 4572
+      targetPort: 4572
+    - name: "sqa"
+      port: 4576
+      targetPort: 4576
+  selector:
+    name: localstack-pod
+    app: harmony-stack
